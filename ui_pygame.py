@@ -9,15 +9,16 @@ from .io_scenes import Scene, Body, save_scene, load_scene
 @dataclass
 class SimState:
     G: float = 1.0
-    eps: float = 0.02
+    eps: float = 0.005
     dt: float = 0.005
     integrator: str = "leapfrog"
     running: bool = False
     zoom: float = 200.0      # пикс/ед. длины
     offset = np.array([500.0, 350.0]) # центр экрана
-    v_scale: float = 1.0
+    v_scale: float = 0.5
     new_mass: float = 10.0
     trails: bool = True
+    collisions: bool = False
 
 class NBodyUI:
     def __init__(self, width=1000, height=700):
@@ -44,7 +45,8 @@ class NBodyUI:
     # --- Симуляция ---
     def step(self):
         if len(self.pos) == 0: return
-        # handle_collisions(self.pos, self.vel, self.mass, self.radius)
+        if self.state.collisions:
+            handle_collisions(self.pos, self.vel, self.mass, self.radius)
         stepper = INTEGRATORS[self.state.integrator]
         self.pos, self.vel = stepper(self.pos, self.vel, self.mass,
                                      self.state.dt, self.state.G, self.state.eps)
@@ -80,13 +82,12 @@ class NBodyUI:
         mass = np.asarray(self.mass, dtype=float)
         if pos.ndim == 2 and pos.shape[1] == 2:
             scr_pos = pos * self.state.zoom + self.state.offset
-            # scr_pos_centered = (pos - np.sum(pos[:, :, None] * mass[None, None, :], axis=-1) / np.sum(mass)) * self.state.zoom + self.state.offset
             for i in range(scr_pos.shape[0]):
 
                 x = int(scr_pos[i, 0])
                 y = int(scr_pos[i, 1])
 
-                pg.draw.circle(self.screen, (255, 0, 0), (x, y), self.radius[i])
+                pg.draw.circle(self.screen, (255, 0, 0), (x, y), max(int(self.radius[i]*self.state.zoom), 1))
 
         # 4. Линия задания скорости
         if self.drag_start is not None:
@@ -99,7 +100,7 @@ class NBodyUI:
         hud = [
             f"N={len(self.pos)}  int={self.state.integrator}  dt={self.state.dt:.4f}  eps={self.state.eps:.3f}",
             f"mass_new={self.state.new_mass:.3f}  v_scale={self.state.v_scale:.2f}  running={self.state.running}",
-            f"Energy≈{E:.5f}   zoom={self.state.zoom:.0f}   trails={self.state.trails}"
+            f"Energy≈{E:.5f}   zoom={self.state.zoom:.0f}   trails={self.state.trails}   collisions={self.state.collisions}",
         ]
         y=8
         for line in hud:
@@ -119,7 +120,7 @@ class NBodyUI:
             self.pos = np.vstack([self.pos, world_pos[None,:]])
             self.vel = np.vstack([self.vel, world_vel[None,:]])
             self.mass = np.hstack([self.mass, np.array([m])])
-            self.radius = np.array([max(2, int(self.mass[i] ** 0.3)) for i in range(len(self.pos))])
+            self.radius = np.array([max(0.01, (self.mass[i] ** 0.3)/100) for i in range(len(self.pos))])
 
     def save_current(self, path="current.json"):
         from .io_scenes import Body, Scene
@@ -134,8 +135,16 @@ class NBodyUI:
         for b in sc.bodies:
             self.add_body(np.array([b.x,b.y]), np.array([b.vx,b.vy]), b.m)
 
+
     # --- Цикл приложения ---
     def run(self):
+
+        print("-" * 100)
+        print("Добро пожаловать в β-версию GravitySim!")
+        config = input("Введите имя файла, из которого вы собираетесь загрузить сцену(опционально): ")
+        curr_name = input("Введите имя текущего файла: ")
+        print("-" * 100)
+
         running_app = True
         while running_app:
             for e in pg.event.get():
@@ -155,8 +164,8 @@ class NBodyUI:
                     k = e.key
                     if k == pg.K_SPACE: self.state.running = not self.state.running
                     elif k == pg.K_c: self.clear()
-                    elif k == pg.K_s: self.save_current("current.json")
-                    elif k == pg.K_l: self.load_from("scenes/two_body.json")
+                    elif k == pg.K_s: self.save_current(f'scenes/{curr_name}.json')
+                    elif k == pg.K_l: self.load_from(f'scenes/{config}.json')
                     elif k == pg.K_1: self.state.integrator = "euler"
                     elif k == pg.K_2: self.state.integrator = "leapfrog"
                     elif k == pg.K_3: self.state.integrator = "rk4"
@@ -169,6 +178,7 @@ class NBodyUI:
                     elif k == pg.K_v: self.state.v_scale = max(0.05, self.state.v_scale/1.25)
                     elif k == pg.K_b: self.state.v_scale *= 1.25
                     elif k == pg.K_t: self.state.trails = not self.state.trails
+                    elif k == pg.K_p: self.state.collisions = not self.state.collisions
                     elif k == pg.K_z: self.state.zoom *= 1.1
                     elif k == pg.K_x: self.state.zoom /= 1.1
                     elif k == pg.K_w: self.state.offset[1] += 30
@@ -178,7 +188,7 @@ class NBodyUI:
                     elif k == pg.K_q: self.state.offset[1] -= 30
 
             if self.state.running:
-                # можно несколько шагов за кадр для ускорения
+                # несколько шагов за кадр для ускорения
                 for _ in range(2):
                     self.step()
 
