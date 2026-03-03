@@ -25,15 +25,6 @@ def total_energy(pos: np.ndarray, vel: np.ndarray, mass: np.ndarray, G: float, e
     pe = -G * np.sum((mass[i] * mass[j]) / dist[i, j])
     return ke + pe
 
-# def collision(v1, v2, r1, r2, m1, m2, R, e):
-#     dist = np.linalg.norm(r1 - r2)
-#     n = (r1 - r2) / dist
-#     if dist <= R or np.dot(n, (v1 - v2)) < 0:
-#         v1_new = v1 - (1+e)*m2/(m1+m2)*np.dot(n, (v1 - v2))*n
-#         v2_new = v2 + (1 + e) * m1 / (m1 + m2) * np.dot(n, (v1 - v2)) * n
-#         return v1_new, v2_new
-#     return None
-
 def handle_collisions(pos, vel, mass, radius):
 
     # Разности координат (N,N,2)
@@ -50,14 +41,14 @@ def handle_collisions(pos, vel, mass, radius):
     collision_mask = (dist2 > 0) & (dist2 <= rad_sum2)
 
     # Берём только верхний треугольник (i < j)
-    i_idx, j_idx = np.where(np.triu(collision_mask, k=1))
+    i_idx, j_idx = np.where(np.triu(collision_mask))
 
     for i, j in zip(i_idx, j_idx):
 
         r = pos[i] - pos[j]
         dist = np.linalg.norm(r)
 
-        if dist <= radius[i] + radius[j]:
+        if dist == 0:
             continue
 
         n = r / dist
@@ -65,24 +56,18 @@ def handle_collisions(pos, vel, mass, radius):
         rel_vel = vel[i] - vel[j]
         rel_normal = np.dot(rel_vel, n)
 
+        def sigma(x): return 1/(1+np.exp(-x))
+        e = sigma(0.1*(np.linalg.norm(rel_vel)+50))
+
         # если тела расходятся — пропускаем
         if rel_normal >= 0:
             continue
-
-        def sigma(x): return 1/(1+np.exp(-x))
-        e = sigma(0.1*(np.linalg.norm(rel_vel)+10))
 
         # Импульс
         J = (1 + e) * rel_normal / (1/mass[i] + 1/mass[j])
 
         impulse = J * n
 
+        # Пересчёт скоростей
         vel[i] -= impulse / mass[i]
         vel[j] += impulse / mass[j]
-
-        # Коррекция проникновения (очень важно!)
-        overlap = rad_sum[i, j] - dist
-        correction = overlap / (mass[i] + mass[j]) * n
-
-        pos[i] += correction * mass[j]
-        pos[j] -= correction * mass[i]
